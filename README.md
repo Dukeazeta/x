@@ -168,39 +168,69 @@ The model predicts future price direction based on current market conditions.
 
 ## Example Output
 
+### Basic Analysis
 ```
 ==================================================
 TRADING SIGNAL ANALYSIS FOR BTC_USDT
 ==================================================
 Latest Signal: HOLD
-Signal Strength: 0.00
-Signal Reason: 
-Timestamp: 2025-06-02 21:45:00
-Current Price: $104,804.80
-RSI: 57.27
-MACD: 133.3264
+Signal Strength: 0.03
+Signal Reason: Neutral (Score: 0.30)
+Timestamp: 2025-06-02 22:00:00
+Current Price: $105,048.20
+RSI: 61.78
+MACD: 160.2826
+ADX: 20.26
+VWAP: $104,892.45
+Signal Components: MACD(2.0), EMA(2.0), ADX(2.0), PSAR(2.0), RSI(-2.0), WILLR(-2.0), CCI(-2.0), OBV(1.0), MFI(1.0)
 
 ==================================================
 RECENT SIGNALS:
 ==================================================
-No recent signals found.
+2025-05-21 19:45:00: BUY (Strength: 0.15) - Bullish confluence (Score: 1.55)
+```
 
+### With Price Action Analysis
+```
 ==================================================
-LATEST DATA:
+TRADING SIGNAL ANALYSIS FOR BTC_USDT
 ==================================================
-                        close     RSI_14  MACD_12_26_9  signal  signal_strength
-timestamp                                                                        
-2025-06-02 21:15:00  104745.3  56.516119    133.326400       0              0.0
-2025-06-02 21:30:00  104640.4  53.773131    133.326400       0              0.0
-2025-06-02 21:45:00  104804.8  57.273098    133.326400       0              0.0
+Latest Signal: HOLD
+Signal Strength: 0.03
+Signal Reason: Neutral (Score: 0.30)
+Timestamp: 2025-06-02 22:00:00
+Current Price: $105,062.70
+RSI: 62.02
+MACD: 161.4393
+ADX: 20.26
+VWAP: $104,895.12
+Signal Components: MACD(2.0), EMA(2.0), ADX(2.0), PSAR(2.0), RSI(-2.0), WILLR(-2.0), CCI(-2.0), OBV(1.0), MFI(1.0)
+Support Level: $103,450.00
+Resistance Level: $106,200.00
+Trend Structure: uptrend
+```
+
+### Symbol Search
+```
+$ python cli.py --search doge
+Loaded 782 active trading pairs from MEXC
+Searching for symbols matching 'doge':
+==================================================
+DOGE_USDT       | DOGE_USDT PERPETUAL  | Base: DOGE     | Max Leverage: 300
+DOGE_USD        | DOGE_USD PERPETUAL   | Base: DOGE     | Max Leverage: 200
 ```
 
 ## Supported Trading Pairs
 
-Any MEXC futures trading pair, including:
-- BTC_USDT
-- ETH_USDT
-- And many others available on MEXC
+**782+ Active MEXC Futures Pairs** (auto-updated from API):
+- **Major Pairs**: BTC_USDT, ETH_USDT, BNB_USDT, XRP_USDT, ADA_USDT, SOL_USDT
+- **DeFi Tokens**: UNI_USDT, LINK_USDT, AVAX_USDT, DOT_USDT, ATOM_USDT
+- **Meme Coins**: DOGE_USDT, PEPE_USDT, WIF_USDT, MOODENG_USDT
+- **Layer 1s**: SUI_USDT, NEAR_USDT, ALGO_USDT, ICP_USDT
+- **USD Pairs**: BTC_USD, ETH_USD, SOL_USD, XRP_USD
+- **New Listings**: Automatically includes new MEXC futures pairs
+
+Use `--list-symbols` to see all available pairs or `--search <query>` to find specific tokens.
 
 ## Disclaimer
 
@@ -208,10 +238,30 @@ This tool is for educational and research purposes only. Cryptocurrency trading 
 
 ## Future Enhancements
 
+### Technical Analysis
+- Multi-timeframe analysis (MTF confirmation)
+- Chart pattern recognition (triangles, flags, head & shoulders)
+- Volume profile analysis
+- Market structure analysis
+- Fibonacci retracements and extensions
+
+### Trading Features
 - Real-time WebSocket data streaming
-- More sophisticated ML models
-- Portfolio management features
-- Risk management tools
-- Web-based dashboard
-- Alert notifications
-- More trading strategies
+- Position sizing and risk management
+- Portfolio management with multiple pairs
+- Stop-loss and take-profit automation
+- Paper trading simulation
+
+### User Interface
+- Web-based dashboard with interactive charts
+- Mobile app for alerts and monitoring
+- Real-time notifications (email, SMS, Discord)
+- Custom indicator builder
+- Strategy backtesting with detailed analytics
+
+### Advanced Analytics
+- Deep learning models (LSTM, Transformer)
+- Sentiment analysis from social media
+- On-chain analysis integration
+- Market correlation analysis
+- Performance attribution analysis

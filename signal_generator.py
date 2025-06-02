@@ -1,6 +1,8 @@
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from indicators import detect_candlestick_patterns, detect_support_resistance, analyze_trend_structure
+from data_fetcher import fetch_candles
+from indicators import calculate_indicators
 
 def generate_signals(df, use_price_action=True, indicator_weights=None):
     """
@@ -263,3 +265,130 @@ def ml_signal_generator(df):
         df['ml_signal'] = 0
 
     return df
+
+def multi_timeframe_analysis(symbol, timeframes=['Min15', 'Hour1', 'Hour4'], use_price_action=True):
+    """
+    Perform multi-timeframe analysis for enhanced signal confirmation
+
+    Args:
+        symbol: Trading pair symbol
+        timeframes: List of timeframes to analyze (ordered from shortest to longest)
+        use_price_action: Whether to include price action analysis
+
+    Returns:
+        dict: MTF analysis results with signals for each timeframe
+    """
+    mtf_results = {}
+
+    for timeframe in timeframes:
+        print(f"Analyzing {timeframe} timeframe...")
+
+        # Fetch data for this timeframe
+        df = fetch_candles(symbol, timeframe)
+        if df is None or len(df) < 50:
+            print(f"Insufficient data for {timeframe}")
+            continue
+
+        # Calculate indicators
+        df = calculate_indicators(df)
+
+        # Generate signals
+        df = generate_signals(df, use_price_action=use_price_action)
+
+        # Extract key metrics
+        latest_row = df.iloc[-1]
+
+        mtf_results[timeframe] = {
+            'signal': latest_row['signal'],
+            'signal_strength': latest_row['signal_strength'],
+            'signal_reason': latest_row['signal_reason'],
+            'trend_structure': latest_row.get('trend_structure', 'unknown'),
+            'rsi': latest_row.get('RSI_14', None),
+            'macd': latest_row.get('MACD_12_26_9', None),
+            'adx': latest_row.get('ADX_14', None),
+            'price': latest_row['close'],
+            'timestamp': df.index[-1],
+            'support_level': latest_row.get('support_level', None),
+            'resistance_level': latest_row.get('resistance_level', None)
+        }
+
+    return mtf_results
+
+def calculate_mtf_confluence(mtf_results, timeframe_weights=None):
+    """
+    Calculate multi-timeframe confluence score
+
+    Args:
+        mtf_results: Results from multi_timeframe_analysis
+        timeframe_weights: Dict with weights for each timeframe
+
+    Returns:
+        dict: Confluence analysis results
+    """
+    if timeframe_weights is None:
+        # Default weights: longer timeframes have more weight
+        timeframe_weights = {
+            'Min1': 0.1,
+            'Min5': 0.15,
+            'Min15': 0.2,
+            'Min30': 0.25,
+            'Min60': 0.3,
+            'Hour4': 0.5,
+            'Hour8': 0.6,
+            'Day1': 0.7
+        }
+
+    total_score = 0
+    total_weight = 0
+    signal_breakdown = {}
+    trend_alignment = {}
+
+    for timeframe, results in mtf_results.items():
+        weight = timeframe_weights.get(timeframe, 0.1)
+        signal = results['signal']
+        strength = results['signal_strength']
+        trend = results['trend_structure']
+
+        # Calculate weighted signal contribution
+        weighted_signal = signal * strength * weight
+        total_score += weighted_signal
+        total_weight += weight
+
+        signal_breakdown[timeframe] = {
+            'signal': 'BUY' if signal == 1 else 'SELL' if signal == -1 else 'HOLD',
+            'strength': strength,
+            'trend': trend,
+            'weight': weight,
+            'contribution': weighted_signal
+        }
+
+        trend_alignment[timeframe] = trend
+
+    # Calculate final confluence score
+    if total_weight > 0:
+        confluence_score = total_score / total_weight
+    else:
+        confluence_score = 0
+
+    # Determine final signal based on confluence
+    if confluence_score > 0.3:
+        final_signal = 'BUY'
+    elif confluence_score < -0.3:
+        final_signal = 'SELL'
+    else:
+        final_signal = 'HOLD'
+
+    # Check trend alignment across timeframes
+    trends = list(trend_alignment.values())
+    trend_consensus = max(set(trends), key=trends.count) if trends else 'unknown'
+    trend_agreement = trends.count(trend_consensus) / len(trends) if trends else 0
+
+    return {
+        'final_signal': final_signal,
+        'confluence_score': confluence_score,
+        'signal_strength': abs(confluence_score),
+        'signal_breakdown': signal_breakdown,
+        'trend_consensus': trend_consensus,
+        'trend_agreement': trend_agreement,
+        'timeframes_analyzed': len(mtf_results)
+    }

@@ -2,9 +2,88 @@ import argparse
 import sys
 from data_fetcher import fetch_candles
 from indicators import calculate_indicators
-from signal_generator import generate_signals, ml_signal_generator
+from signal_generator import generate_signals, ml_signal_generator, multi_timeframe_analysis, calculate_mtf_confluence
 from backtest import simple_backtest, print_backtest_results
 from symbol_manager import symbol_manager
+from websocket_stream import MexcWebSocketStream, MultiSymbolStream, print_signal_callback
+import time
+
+def print_mtf_results(mtf_results, confluence):
+    """Print formatted multi-timeframe analysis results"""
+
+    print(f"\n{'='*60}")
+    print("MULTI-TIMEFRAME CONFLUENCE ANALYSIS")
+    print(f"{'='*60}")
+
+    # Overall confluence
+    final_signal = confluence['final_signal']
+    confluence_score = confluence['confluence_score']
+    signal_strength = confluence['signal_strength']
+    trend_consensus = confluence['trend_consensus']
+    trend_agreement = confluence['trend_agreement']
+
+    print(f"🎯 FINAL SIGNAL: {final_signal}")
+    print(f"📊 Confluence Score: {confluence_score:.3f}")
+    print(f"💪 Signal Strength: {signal_strength:.3f}")
+    print(f"📈 Trend Consensus: {trend_consensus}")
+    print(f"🤝 Trend Agreement: {trend_agreement:.1%}")
+    print(f"⏰ Timeframes Analyzed: {confluence['timeframes_analyzed']}")
+
+    print(f"\n{'='*60}")
+    print("TIMEFRAME BREAKDOWN")
+    print(f"{'='*60}")
+
+    # Timeframe details
+    for timeframe, results in mtf_results.items():
+        signal = 'BUY' if results['signal'] == 1 else 'SELL' if results['signal'] == -1 else 'HOLD'
+        strength = results['signal_strength']
+        trend = results['trend_structure']
+        price = results['price']
+
+        print(f"\n📅 {timeframe}:")
+        print(f"   Signal: {signal} (Strength: {strength:.3f})")
+        print(f"   Trend: {trend}")
+        print(f"   Price: ${price:,.2f}")
+
+        if results['rsi'] is not None:
+            print(f"   RSI: {results['rsi']:.2f}")
+        if results['macd'] is not None:
+            print(f"   MACD: {results['macd']:.4f}")
+        if results['adx'] is not None:
+            print(f"   ADX: {results['adx']:.2f}")
+
+        if results['support_level'] is not None:
+            print(f"   Support: ${results['support_level']:,.2f}")
+        if results['resistance_level'] is not None:
+            print(f"   Resistance: ${results['resistance_level']:,.2f}")
+
+    print(f"\n{'='*60}")
+    print("SIGNAL CONTRIBUTIONS")
+    print(f"{'='*60}")
+
+    # Signal breakdown
+    for timeframe, breakdown in confluence['signal_breakdown'].items():
+        signal = breakdown['signal']
+        weight = breakdown['weight']
+        contribution = breakdown['contribution']
+
+        print(f"{timeframe:<8}: {signal:<4} (Weight: {weight:.1f}, Contribution: {contribution:+.3f})")
+
+    print(f"\n{'='*60}")
+    print("TRADING RECOMMENDATION")
+    print(f"{'='*60}")
+
+    if final_signal == 'BUY':
+        print("🟢 BULLISH CONFLUENCE DETECTED")
+        print("   Consider LONG position with proper risk management")
+    elif final_signal == 'SELL':
+        print("🔴 BEARISH CONFLUENCE DETECTED")
+        print("   Consider SHORT position with proper risk management")
+    else:
+        print("🟡 NEUTRAL/MIXED SIGNALS")
+        print("   Wait for clearer confluence before entering position")
+
+    print(f"\n⚠️  Always use proper risk management and position sizing!")
 
 def main():
     parser = argparse.ArgumentParser(description='Crypto Trading Signal Generator')
@@ -21,6 +100,16 @@ def main():
                        choices=['trend', 'momentum', 'volume', 'volatility', 'oscillators'],
                        help='Specify which indicator categories to use')
     parser.add_argument('--search', type=str, help='Search for symbols matching the query')
+    parser.add_argument('--mtf', '--multi-timeframe', action='store_true',
+                       help='Enable multi-timeframe analysis')
+    parser.add_argument('--timeframes', type=str, nargs='+',
+                       default=['Min15', 'Min60', 'Hour4'],
+                       choices=['Min1', 'Min5', 'Min15', 'Min30', 'Min60', 'Hour4', 'Hour8', 'Day1'],
+                       help='Timeframes for MTF analysis (default: Min15 Min60 Hour4)')
+    parser.add_argument('--stream', action='store_true',
+                       help='Enable real-time WebSocket streaming')
+    parser.add_argument('--stream-symbols', type=str, nargs='+',
+                       help='Symbols to stream (default: uses --symbol)')
 
     args = parser.parse_args()
 
@@ -63,7 +152,104 @@ def main():
         results = simple_backtest(args.symbol)
         print_backtest_results(results)
         return
-    
+
+    # Run multi-timeframe analysis if requested
+    if args.mtf:
+        print(f"Running Multi-Timeframe Analysis for {args.symbol}")
+        print(f"Timeframes: {', '.join(args.timeframes)}")
+        print("=" * 60)
+
+        # Perform MTF analysis
+        mtf_results = multi_timeframe_analysis(
+            args.symbol,
+            timeframes=args.timeframes,
+            use_price_action=args.price_action
+        )
+
+        if not mtf_results:
+            print("No data available for multi-timeframe analysis")
+            return
+
+        # Calculate confluence
+        confluence = calculate_mtf_confluence(mtf_results)
+
+        # Display MTF results
+        print_mtf_results(mtf_results, confluence)
+        return
+
+    # Run real-time streaming if requested
+    if args.stream:
+        symbols_to_stream = args.stream_symbols if args.stream_symbols else [args.symbol]
+
+        print(f"🚀 Starting Real-Time Signal Monitoring")
+        print(f"Symbols: {', '.join(symbols_to_stream)}")
+        print(f"Interval: {args.interval}")
+        print("=" * 60)
+        print("Press Ctrl+C to stop streaming")
+        print("=" * 60)
+
+        # Create multi-symbol stream manager
+        stream_manager = MultiSymbolStream()
+
+        # Add enhanced callback for better output
+        def enhanced_signal_callback(signal_data):
+            timestamp = signal_data['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
+            symbol = signal_data['symbol']
+            signal = signal_data['signal']
+            strength = signal_data['signal_strength']
+            price = signal_data['price']
+            reason = signal_data['signal_reason']
+
+            print(f"\n🚨 LIVE SIGNAL ALERT 🚨")
+            print(f"Symbol: {symbol}")
+            print(f"Signal: {signal}")
+            print(f"Strength: {strength:.3f}")
+            print(f"Price: ${price:,.2f}")
+            print(f"Reason: {reason}")
+            print(f"Time: {timestamp}")
+
+            if signal_data['rsi'] is not None:
+                print(f"RSI: {signal_data['rsi']:.2f}")
+            if signal_data['macd'] is not None:
+                print(f"MACD: {signal_data['macd']:.4f}")
+            if signal_data['adx'] is not None:
+                print(f"ADX: {signal_data['adx']:.2f}")
+
+            print("-" * 60)
+
+        stream_manager.add_global_callback(enhanced_signal_callback)
+
+        # Add symbols to stream
+        for symbol in symbols_to_stream:
+            # Validate symbol
+            normalized_symbol, is_valid, message = symbol_manager.validate_symbol(symbol)
+            if not is_valid:
+                print(f"⚠️  Skipping {symbol}: {message}")
+                continue
+
+            stream_manager.add_symbol(normalized_symbol, args.interval)
+
+        try:
+            # Start all streams
+            threads = stream_manager.start_all_streams()
+
+            if not threads:
+                print("❌ No valid symbols to stream")
+                return
+
+            print(f"✅ Started streaming {len(threads)} symbols")
+            print("Waiting for signals...")
+
+            # Keep main thread alive
+            while True:
+                time.sleep(1)
+
+        except KeyboardInterrupt:
+            print("\n🛑 Stopping all streams...")
+            stream_manager.stop_all_streams()
+            print("✅ All streams stopped.")
+            return
+
     print(f"Fetching data for {args.symbol} ({args.interval})...")
     df = fetch_candles(args.symbol, args.interval)
     
