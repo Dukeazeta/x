@@ -44,6 +44,9 @@ class SignalResponse(BaseModel):
     support_level: Optional[float] = None
     resistance_level: Optional[float] = None
     trend_structure: Optional[str] = None
+    volume: Optional[float] = None
+    change_24h: Optional[float] = None
+    change_percent_24h: Optional[float] = None
 
 class MTFResponse(BaseModel):
     symbol: str
@@ -101,16 +104,31 @@ async def root():
 
 @app.get("/symbols")
 async def get_symbols(limit: int = 50):
-    """Get list of available trading symbols"""
+    """Get list of available trading symbols with metadata"""
     try:
         symbols = symbol_manager.get_popular_symbols(limit)
+        all_symbols = symbol_manager.get_all_symbols()
+
+        # Ensure all data is JSON serializable
         return {
-            "symbols": symbols,
-            "total_available": len(symbol_manager.get_all_symbols()),
-            "message": f"Retrieved {len(symbols)} popular symbols"
+            "symbols": list(symbols) if symbols else [],
+            "total_available": len(all_symbols) if all_symbols else 0,
+            "message": f"Retrieved {len(symbols) if symbols else 0} popular symbols"
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error in get_symbols: {e}")  # Debug logging
+        raise HTTPException(status_code=500, detail=f"Failed to fetch symbols: {str(e)}")
+
+@app.get("/symbols/list")
+async def get_symbols_list(limit: int = 50):
+    """Get simple list of trading symbols (for Flutter compatibility)"""
+    try:
+        symbols = symbol_manager.get_popular_symbols(limit)
+        # Return just the array of symbols
+        return list(symbols) if symbols else []
+    except Exception as e:
+        print(f"Error in get_symbols_list: {e}")  # Debug logging
+        raise HTTPException(status_code=500, detail=f"Failed to fetch symbols: {str(e)}")
 
 @app.get("/symbols/search/{query}")
 async def search_symbols(query: str, max_results: int = 10):
@@ -122,6 +140,44 @@ async def search_symbols(query: str, max_results: int = 10):
             "matches": matches,
             "count": len(matches)
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/symbols/{symbol}/info")
+async def get_symbol_info(symbol: str):
+    """Get detailed information about a specific symbol"""
+    try:
+        # Validate symbol
+        normalized_symbol, is_valid, message = symbol_manager.validate_symbol(symbol)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=f"Invalid symbol: {message}")
+
+        # Extract safe data with defaults
+        base_coin = normalized_symbol.split('_')[0] if '_' in normalized_symbol else 'BTC'
+        quote_coin = normalized_symbol.split('_')[1] if '_' in normalized_symbol else 'USDT'
+
+        # Get current price data
+        df = fetch_candles(normalized_symbol, "Min15")
+        current_data = {}
+        if df is not None and len(df) > 0:
+            latest = df.iloc[-1]
+            current_data = {
+                "price": float(latest['close']),
+                "volume": float(latest['volume']),
+                "high_24h": float(df.tail(96)['high'].max() if len(df) >= 96 else latest['high']),
+                "low_24h": float(df.tail(96)['low'].min() if len(df) >= 96 else latest['low']),
+                "timestamp": latest.name.isoformat()
+            }
+
+        return {
+            "symbol": normalized_symbol,
+            "display_name": f"{base_coin}/{quote_coin}",
+            "base_coin": base_coin,
+            "quote_coin": quote_coin,
+            "max_leverage": 100,  # Default value
+            "current_data": current_data
+        }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -152,6 +208,14 @@ async def get_signal(request: SymbolRequest):
         # Get latest signal
         latest_row = df.iloc[-1]
         
+        # Calculate 24h change
+        change_24h = None
+        change_percent_24h = None
+        if len(df) > 24:  # Assuming hourly data, adjust as needed
+            price_24h_ago = df.iloc[-24]['close']
+            change_24h = latest_row['close'] - price_24h_ago
+            change_percent_24h = (change_24h / price_24h_ago) * 100
+
         return SignalResponse(
             symbol=symbol,
             timestamp=latest_row.name.isoformat(),
@@ -164,7 +228,10 @@ async def get_signal(request: SymbolRequest):
             adx=latest_row.get('ADX_14'),
             support_level=latest_row.get('support_level'),
             resistance_level=latest_row.get('resistance_level'),
-            trend_structure=latest_row.get('trend_structure')
+            trend_structure=latest_row.get('trend_structure'),
+            volume=latest_row['volume'],
+            change_24h=change_24h,
+            change_percent_24h=change_percent_24h
         )
         
     except Exception as e:
